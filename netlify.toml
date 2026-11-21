@@ -1,0 +1,11 @@
+# Netlify build configuration.
+#
+# The client is a Vite build; the API lives in the Vite middleware stack, so a
+# static Netlify deploy serves the app shell and its assets (public/_redirects
+# carries the SPA fallback).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24"

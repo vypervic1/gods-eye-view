@@ -1,0 +1,7 @@
+# Netlify redirects for the static build.
+#
+# The app is a single page: every path serves the same document, and the
+# client reads its state from the query string. Netlify serves
+# /assets/* and /cesium/* as static files first, so this rule only catches
+# what is left.
+/*    /index.html   200
