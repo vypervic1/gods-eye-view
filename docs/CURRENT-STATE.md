@@ -4043,6 +4043,19 @@ The TomTom `/api/tomtom/*` routes run the shared same-site admission gate before
 status, cache or upstream work, refusing cross-site browser requests while
 preserving same-origin app requests and non-browser local callers. The browser
 layers and their rendering remain in their existing modules.
+TomTom assigns keys per product, so a key that is not assigned the Traffic
+Flow Maps product is refused with HTTP 403 there. The proxy asks the Maps
+endpoint first and, when the key is refused there, asks the Orbis Maps flow
+endpoint instead; the endpoint that answered is remembered for that key until
+the key changes or the process restarts. Each tile carries `x-tomtom-schema`
+(`maps` or `orbis`), because the two name the same attributes differently:
+Orbis reads the speed from `relative_speed` and the road class from
+`road_category` (a `_link` ramp wears the name of the road it belongs to,
+service roads and tracks are left out), and the layer downstream sees the one
+vocabulary either way. When both endpoints refuse the key, the tile answers
+`403 {error: 'key_rejected'}`, `/api/tomtom/status` reports `keyRejected`,
+the panel says the key was rejected, and upstream is left alone for five
+minutes instead of every tile being retried against the daily tile budget.
 Past the daily tile budget, or while TomTom fails, the proxy answers with its
 last copy of a tile (`x-tomtom-cache: STALE-BUDGET` / `STALE-ERROR`) however old
 it is, and every tile carries `x-tomtom-fetched-at`, the proxy fetch time

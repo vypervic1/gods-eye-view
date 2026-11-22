@@ -1771,6 +1771,7 @@
   "Moving dots": "Rörliga punkter",
   "TomTom key unavailable": "TomTom-nyckel otillgänglig",
   "TomTom daily budget reached": "TomTom-dagsbudgeten är förbrukad",
+  "TomTom key rejected": "TomTom-nyckeln avvisades",
   "Monthly traffic allowance used": "Månadens trafikkvot är förbrukad",
   "Traffic rate limit reached": "Trafiktjänsten har nått gränsen för förfrågningar",
   "Traffic service unavailable": "Trafiktjänsten är otillgänglig",

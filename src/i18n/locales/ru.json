@@ -2507,6 +2507,7 @@
   "SIMULATED — {reason}": "СИМУЛЯЦИЯ — {reason}",
   "TomTom key unavailable": "Ключ TomTom недоступен",
   "TomTom daily budget reached": "Исчерпан дневной лимит TomTom",
+  "TomTom key rejected": "Ключ TomTom отклонён",
   "Monthly traffic allowance used": "Месячный лимит данных о трафике исчерпан",
   "Traffic rate limit reached": "Достигнут лимит запросов данных о трафике",
   "Traffic service unavailable": "Сервис данных о трафике недоступен",

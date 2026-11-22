@@ -2458,6 +2458,7 @@
   "SIMULATED — {reason}": "SIMULADO — {reason}",
   "TomTom key unavailable": "Clave de TomTom no disponible",
   "TomTom daily budget reached": "Se alcanzó el límite diario de TomTom",
+  "TomTom key rejected": "Clave de TomTom rechazada",
   "Monthly traffic allowance used": "Cupo mensual de tráfico agotado",
   "Traffic rate limit reached": "Límite de peticiones de tráfico alcanzado",
   "Traffic service unavailable": "Servicio de tráfico no disponible",

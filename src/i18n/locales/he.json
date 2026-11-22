@@ -1087,6 +1087,7 @@
   "Hybrid": "היברידי",
   "TomTom key unavailable": "מפתח TomTom אינו זמין",
   "TomTom daily budget reached": "תקציב TomTom היומי אזל",
+  "TomTom key rejected": "מפתח TomTom נדחה",
   "TomTom upstream unreachable": "שירות TomTom אינו נגיש",
   "TomTom flow unavailable": "זרימת TomTom אינה זמינה",
   "SIMULATED — {reason}": "מדומה — {reason}",

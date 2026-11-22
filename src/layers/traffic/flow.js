@@ -48,6 +48,8 @@ export function createFlow({ state: layerState, services, parts, source }) {
     if (code === 'USAGE_LIMIT_REACHED')
       return msg('Monthly traffic allowance used');
     if (code === 'RATE_LIMITED') return msg('Traffic rate limit reached');
+    // The proxy reports a key that neither TomTom endpoint accepts.
+    if (code === 'key_rejected') return msg('TomTom key rejected');
     if (status === 503 && code && code !== 'no_key')
       return msg('Traffic service unavailable');
     if (status === 503) return msg('TomTom key unavailable');

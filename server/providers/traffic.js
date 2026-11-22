@@ -10,6 +10,24 @@ import {
 } from '../../src/data/tomtomTiles.js';
 import { admitSameSite } from './common/same-site.js';
 
+/** TomTom Maps flow tiles: the endpoint a Traffic Flow Maps key is assigned. */
+const MAPS_FLOW_URL =
+  'https://api.tomtom.com/traffic/map/4/tile/flow/relative/';
+/** TomTom Orbis Maps flow tiles: the endpoint other keys are assigned. */
+const ORBIS_FLOW_URL =
+  'https://api.tomtom.com/maps/orbis/traffic/flow/vector/tile/';
+/** How long a refused key is left alone before the proxy asks upstream again. */
+const KEY_REJECTED_COOLDOWN_MS = 5 * 60_000;
+
+/** A key both endpoints refused: the proxy stops asking for a while. */
+class KeyRejectedError extends Error {
+  constructor() {
+    super('key rejected');
+    this.name = 'KeyRejectedError';
+    this.code = 'key_rejected';
+  }
+}
+
 /**
  * TomTom traffic-flow vector-tile proxy with a daily budget governor.
  *
@@ -17,6 +35,16 @@ import { admitSameSite } from './common/same-site.js';
  * (style `relative`; the response is an UNCOMPRESSED Mapbox Vector Tile, layer
  * "Traffic flow"). The key comes from TOMTOM_API_KEY server-side only — the
  * browser fetches same-origin `/api/tomtom/flow/{z}/{x}/{y}.pbf`.
+ *
+ * TomTom assigns keys per product, so a key that is not assigned the Traffic
+ * Flow Maps product is refused with HTTP 403 there while it works on the
+ * Orbis Maps flow endpoint
+ * (https://api.tomtom.com/maps/orbis/traffic/flow/vector/tile/{z}/{x}/{y}).
+ * The proxy asks the Maps endpoint first and, when the key is refused there,
+ * asks Orbis instead; whichever endpoint answered is remembered for that key
+ * until the key changes or the process restarts. The tile says which schema
+ * it carries (`x-tomtom-schema`), because the two endpoints name the same
+ * attributes differently.
  *
  * Cache: memory + disk (.gev-cache/tomtom/), TTL 120 s (traffic is fresh
  * data), single-flight per tile, serve-stale-on-failure — the celestrakProxy
@@ -69,6 +97,18 @@ export function tomtomProxy() {
   let budget = null;
   let budgetLoaded = false;
 
+  /** Which endpoint answered for the current key: 'maps' or 'orbis'. */
+  let endpoint = null;
+  /** The key that endpoint belongs to; a new key starts at the Maps endpoint. */
+  let endpointKey = null;
+  /** When a refused key may be asked about again. */
+  let keyRejectedUntil = 0;
+
+  /** Whether the current key is known to be refused. */
+  function keyRejected() {
+    return Date.now() < keyRejectedUntil;
+  }
+
   function dailyBudgetLimit() {
     const raw = Number.parseInt(process.env.TOMTOM_DAILY_TILE_BUDGET || '', 10);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_BUDGET;
@@ -114,24 +154,29 @@ export function tomtomProxy() {
 
   const tilePath = (key) =>
     path.join(CACHE_DIR, `flow-${key.replaceAll('/', '-')}.pbf`);
+  /** The sidecar says which schema the cached tile carries. */
+  const schemaPath = (key) =>
+    path.join(CACHE_DIR, `flow-${key.replaceAll('/', '-')}.schema`);
 
   /** Disk-cache read; tile age comes from the file's mtime. */
   async function readDiskTile(key) {
     try {
-      const [stat, buf] = await Promise.all([
+      const [stat, buf, schema] = await Promise.all([
         fsp.stat(tilePath(key)),
         fsp.readFile(tilePath(key)),
+        fsp.readFile(schemaPath(key), 'utf8').catch(() => ''),
       ]);
-      return { at: stat.mtimeMs, buf };
+      return { at: stat.mtimeMs, buf, schema: schema.trim() || 'maps' };
     } catch {
       return null;
     }
   }
 
-  async function writeDiskTile(key, buf) {
+  async function writeDiskTile(key, buf, schema) {
     try {
       await fsp.mkdir(CACHE_DIR, { recursive: true });
       await fsp.writeFile(tilePath(key), buf);
+      await fsp.writeFile(schemaPath(key), schema);
     } catch (err) {
       console.warn(
         `[tomtom-proxy] tile cache write failed for ${key}:`,
@@ -149,22 +194,42 @@ export function tomtomProxy() {
     mem.set(key, entry);
   }
 
+  /**
+   * Fetch one tile, asking the endpoint this key is assigned. A key refused
+   * with 403 by the Maps endpoint is asked about on Orbis instead; the
+   * endpoint that answered is remembered for that key.
+   */
   async function fetchUpstream(z, x, y) {
-    const url =
-      'https://api.tomtom.com/traffic/map/4/tile/flow/relative/' +
-      `${z}/${x}/${y}.pbf?key=${encodeURIComponent(process.env.TOMTOM_API_KEY)}`;
-    recordUpstreamFetch(); // attempts count — upstream bills the request either way
-    const signal = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
-    const res = await fetch(url, { signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const bytes = await readResponseBytesCapped(
-      res,
-      TOMTOM_TILE_MAX_RESPONSE_BYTES,
-      signal,
-    );
-    const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    if (buf.length === 0) throw new Error('empty tile body');
-    return buf;
+    const key = process.env.TOMTOM_API_KEY || '';
+    if (keyRejected()) throw new KeyRejectedError();
+    // Another key may be assigned another product, so it starts at the Maps
+    // endpoint again.
+    if (endpointKey !== null && endpointKey !== key) endpoint = null;
+    const order = endpoint === 'orbis' ? ['orbis', 'maps'] : ['maps', 'orbis'];
+    for (const mode of order) {
+      const url =
+        mode === 'orbis'
+          ? `${ORBIS_FLOW_URL}${z}/${x}/${y}?apiVersion=2&key=${encodeURIComponent(key)}`
+          : `${MAPS_FLOW_URL}${z}/${x}/${y}.pbf?key=${encodeURIComponent(key)}`;
+      recordUpstreamFetch(); // attempts count — upstream bills the request either way
+      const signal = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+      const res = await fetch(url, { signal });
+      if (res.status === 403) continue; // this key is not assigned this product
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const bytes = await readResponseBytesCapped(
+        res,
+        TOMTOM_TILE_MAX_RESPONSE_BYTES,
+        signal,
+      );
+      const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (buf.length === 0) throw new Error('empty tile body');
+      endpoint = mode;
+      endpointKey = key;
+      return { buf, schema: mode };
+    }
+    // Both endpoints refused the key: leave upstream alone for a while.
+    keyRejectedUntil = Date.now() + KEY_REJECTED_COOLDOWN_MS;
+    throw new KeyRejectedError();
   }
 
   const installMiddleware = (server) => {
@@ -184,6 +249,8 @@ export function tomtomProxy() {
       };
       // x-tomtom-fetched-at is when the proxy fetched the tile (ms since the
       // epoch), so a client handed a STALE-* copy can say how old it is.
+      // x-tomtom-schema says which endpoint produced the tile, because the
+      // two name the same attributes differently.
       const sendTile = (entry, cacheStatus) => {
         if (res.headersSent) return;
         res.writeHead(200, {
@@ -191,6 +258,7 @@ export function tomtomProxy() {
           'Cache-Control': 'no-store',
           'x-tomtom-cache': cacheStatus,
           'x-tomtom-fetched-at': String(Math.round(entry.at)),
+          'x-tomtom-schema': entry.schema || 'maps',
         });
         res.end(entry.buf);
       };
@@ -207,6 +275,7 @@ export function tomtomProxy() {
             dailyCount: b.count,
             budget: dailyBudgetLimit(),
             date: b.date,
+            keyRejected: keyRejected(),
           });
           return;
         }
@@ -225,6 +294,12 @@ export function tomtomProxy() {
         }
         if (!process.env.TOMTOM_API_KEY) {
           sendJson(503, { error: 'no_key' });
+          return;
+        }
+        // A refused key is not worth a tile request: both endpoints refused it
+        // moments ago, so say so instead of spending the budget.
+        if (keyRejected()) {
+          sendJson(403, { error: 'key_rejected' });
           return;
         }
 
@@ -257,13 +332,14 @@ export function tomtomProxy() {
           inflight.set(
             key,
             fetchUpstream(z, x, y)
-              .then(async (buf) => {
-                const fresh = { at: Date.now(), buf };
+              .then(async ({ buf, schema }) => {
+                const fresh = { at: Date.now(), buf, schema };
                 memSet(key, fresh);
-                await writeDiskTile(key, buf);
+                await writeDiskTile(key, buf, schema);
                 return fresh;
               })
               .catch((err) => {
+                if (err?.code === 'key_rejected') return { rejected: true };
                 console.warn(
                   `[tomtom-proxy] ${key} fetch failed (${err?.message || err}) — serving stale if any`,
                 );
@@ -273,6 +349,10 @@ export function tomtomProxy() {
           );
         }
         const fresh = await inflight.get(key);
+        if (fresh?.rejected) {
+          sendJson(403, { error: 'key_rejected' });
+          return;
+        }
         if (fresh) {
           sendTile(fresh, 'MISS');
         } else if (entry) {

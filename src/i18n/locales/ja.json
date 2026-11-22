@@ -1196,6 +1196,7 @@
   "Moving dots": "移動ドット",
   "TomTom key unavailable": "TomTomキーを利用できません",
   "TomTom daily budget reached": "TomTomの1日の上限に達しました",
+  "TomTom key rejected": "TomTom キーが拒否されました",
   "Monthly traffic allowance used": "今月の交通情報の上限に達しました",
   "Traffic rate limit reached": "交通情報のリクエスト上限に達しました",
   "Traffic service unavailable": "交通情報サービスを利用できません",

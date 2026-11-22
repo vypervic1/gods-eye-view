@@ -285,6 +285,67 @@ test('traffic middleware answers 502 to an oversized tile without caching it', a
   assert.equal(bodies.length, 2, 'nothing was cached in memory');
 });
 
+test('traffic falls back to the Orbis flow endpoint when the key is refused', async (t) => {
+  isolate(t, { TOMTOM_API_KEY: 'fixture-key', TOMTOM_DAILY_TILE_BUDGET: '' });
+  const asked = [];
+  t.mock.method(globalThis, 'fetch', async (raw) => {
+    const url = new URL(raw);
+    asked.push(url.pathname);
+    // This key is not assigned the Traffic Flow Maps product.
+    if (url.pathname.includes('/traffic/map/4/')) {
+      return new Response('forbidden', { status: 403 });
+    }
+    assert.equal(url.searchParams.get('apiVersion'), '2');
+    return new Response(new Uint8Array([1, 2, 3]));
+  });
+  const request = install(tomtomProxy());
+  const tile = await request('/flow/8/1/1.pbf');
+  assert.equal(tile.status, 200);
+  assert.equal(tile.headers['x-tomtom-schema'], 'orbis');
+  assert.ok(
+    asked.some((path) => path.includes('/traffic/map/4/')),
+    'the Maps endpoint was asked first',
+  );
+  assert.ok(
+    asked.some((path) =>
+      path.includes('/maps/orbis/traffic/flow/vector/tile/'),
+    ),
+    'the Orbis endpoint answered',
+  );
+
+  // The endpoint that answered is remembered for this key.
+  asked.length = 0;
+  const second = await request('/flow/8/2/1.pbf');
+  assert.equal(second.status, 200);
+  assert.equal(second.headers['x-tomtom-schema'], 'orbis');
+  assert.equal(
+    asked.filter((path) => path.includes('/traffic/map/4/')).length,
+    0,
+    'the refused endpoint is not asked again',
+  );
+});
+
+test('traffic leaves a key alone that both endpoints refuse', async (t) => {
+  isolate(t, { TOMTOM_API_KEY: 'fixture-key', TOMTOM_DAILY_TILE_BUDGET: '' });
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return new Response('forbidden', { status: 403 });
+  });
+  const request = install(tomtomProxy());
+  const refused = await request('/flow/8/1/1.pbf');
+  assert.equal(refused.status, 403);
+  assert.deepEqual(json(refused), { error: 'key_rejected' });
+  assert.equal(json(await request('/status')).keyRejected, true);
+  assert.equal(calls, 2, 'both endpoints were asked once');
+
+  // Upstream is left alone afterwards: the key would be refused again.
+  const again = await request('/flow/8/2/1.pbf');
+  assert.equal(again.status, 403);
+  assert.deepEqual(json(again), { error: 'key_rejected' });
+  assert.equal(calls, 2, 'no further upstream requests');
+});
+
 test('FIRMS retains a large successful source during partial failure and filters stale data at serve time', async (t) => {
   isolate(t, { FIRMS_MAP_KEY: '' });
   let now = Date.UTC(2026, 8, 12, 12);

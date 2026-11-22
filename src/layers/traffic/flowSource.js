@@ -41,6 +41,15 @@ function tileFreshness(response) {
 }
 
 /**
+ * Which endpoint produced the tile. The two name the same attributes
+ * differently, so the decoder needs to know before it reads a feature.
+ */
+function tileSchema(response) {
+  const schema = response.headers?.get?.('x-tomtom-schema');
+  return schema === 'orbis' ? 'orbis' : 'maps';
+}
+
+/**
  * Clip a flow line to a box. Every piece keeps its uncut line as `line`, so
  * pieces of one line that doubles back are never paired with each other.
  */
@@ -72,7 +81,10 @@ export function createFlowTileSource({
       const entry = pending.get(path);
       const mark = entry?.mark;
       entry?.release();
-      const segments = decodeFlowTile(bytes, z, x, y, { strict: true })
+      const segments = decodeFlowTile(bytes, z, x, y, {
+        strict: true,
+        schema: entry?.schema,
+      })
         .filter(isDrivableFlowSegment)
         .flatMap((segment) => clipFlowSegment(segment, tileToBBox(z, x, y)));
       if (mark) freshness.set(segments, mark);
@@ -93,6 +105,7 @@ export function createFlowTileSource({
         const path = String(url);
         const entry = {
           mark: tileFreshness(response),
+          schema: tileSchema(response),
           release() {
             if (pending.get(path) === entry) pending.delete(path);
             init.signal.removeEventListener('abort', entry.release);
