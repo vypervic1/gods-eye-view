@@ -1,5 +1,8 @@
-# Netlify redirects for the static build.
-#
+# The API is a Netlify Function. Netlify evaluates these rules before it
+# looks for a function, so the SPA fallback alone would swallow every
+# /api/* request and answer with the app shell instead of the provider.
+/api/*    /.netlify/functions/api/:splat   200
+
 # The app is a single page: every path serves the same document, and the
 # client reads its state from the query string. Netlify serves
 # /assets/* and /cesium/* as static files first, so this rule only catches

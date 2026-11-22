@@ -204,6 +204,23 @@ function stack() {
 }
 
 /**
+ * The path the providers expect, whatever mount point Netlify used.
+ *
+ * Netlify can reach this function through the rewrite in `public/_redirects`
+ * (`/api/*` → `/.netlify/functions/api/:splat`) or through the function's own
+ * `config.path`, and the path that reaches the handler carries the mount point
+ * in one of three shapes. The providers are mounted at `/api/...`, so the mount
+ * point is stripped and the `/api` prefix is put back.
+ */
+function apiPath(pathname) {
+  let rest = String(pathname || '/');
+  rest = rest.replace(/^\/\.netlify\/functions\/api/, '');
+  rest = rest.replace(/^\/api/, '');
+  if (!rest.startsWith('/')) rest = `/${rest}`;
+  return rest === '/' ? '/api' : `/api${rest}`;
+}
+
+/**
  * Run the request through the middleware stack and answer with the collected
  * response.
  */
@@ -212,6 +229,7 @@ export async function handle(request) {
   const routes = await stack();
   const res = new FunctionResponse();
   const body = await bodyOf(request);
+  const pathname = apiPath(url.pathname);
 
   let index = 0;
   let outstanding = null;
@@ -227,12 +245,12 @@ export async function handle(request) {
         return;
       }
       const { prefix, handler } = route;
-      let requestUrl = url.pathname + url.search;
+      let requestUrl = pathname + url.search;
       if (prefix) {
-        if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) {
+        if (pathname !== prefix && !pathname.startsWith(`${prefix}/`)) {
           return next();
         }
-        requestUrl = url.pathname.slice(prefix.length) || '/';
+        requestUrl = pathname.slice(prefix.length) || '/';
         if (url.search) requestUrl += url.search;
       }
       const req = toNodeRequest(request, requestUrl, body);

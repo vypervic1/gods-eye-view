@@ -61,6 +61,20 @@ test('the mounted path is stripped before the handler runs', async () => {
   assert.equal(response.status, 200);
 });
 
+test('the mount point Netlify used does not change the route', async () => {
+  // Netlify can hand the function the rewritten path
+  // (/.netlify/functions/api/...) or the path it matched by configuration
+  // (/api/...); both have to reach the same provider route.
+  for (const path of [
+    '/.netlify/functions/api/tomtom/status',
+    '/api/tomtom/status',
+    '/tomtom/status',
+  ]) {
+    const response = await handle(browserRequest(path));
+    assert.equal(response.status, 200, path);
+  }
+});
+
 test('work that outlasts the deadline answers with the app’s error shape', async (t) => {
   // A fresh module reads the deadline from the environment, so the function
   // under test gives up almost at once. The provider it asks never answers.

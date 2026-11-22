@@ -7,12 +7,28 @@ middleware.
 
 ## What is where
 
-| Piece | Path | Role |
-| --- | --- | --- |
-| Site configuration | `netlify.toml` | Build command, publish directory, function directory and the data files the function reads |
-| SPA fallback | `public/_redirects` | Every path serves the one document the client reads its state from |
-| API function | `netlify/functions/api.mjs` | Mounts the provider middleware and answers `/api/*` |
-| Function tests | `netlify/tests/api.test.mjs` | The adapter over the real middleware |
+| Piece              | Path                         | Role                                                                                                    |
+| ------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Site configuration | `netlify.toml`               | Build command, publish directory, function directory and the data files the function reads              |
+| SPA fallback       | `public/_redirects`          | Sends `/api/*` to the function and every other path to the one document the client reads its state from |
+| API function       | `netlify/functions/api.mjs`  | Mounts the provider middleware and answers `/api/*`                                                     |
+| Function tests     | `netlify/tests/api.test.mjs` | The adapter over the real middleware                                                                    |
+
+## How the request reaches the function
+
+Netlify evaluates the redirect rules before it looks for a function, so the
+SPA fallback on its own answers every `/api/*` request with the app shell. The
+rules therefore name the function first:
+
+```
+/api/*    /.netlify/functions/api/:splat   200
+/*        /index.html                       200
+```
+
+The function accepts the path in any of the shapes that routing can produce —
+the rewritten `/.netlify/functions/api/...` path, the `/api/...` path, or the
+part after the mount point — because the providers are mounted at `/api/...`
+and see the same route either way.
 
 ## Deploying
 
