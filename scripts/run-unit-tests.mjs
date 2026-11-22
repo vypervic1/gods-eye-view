@@ -87,6 +87,36 @@ export const UNIT_TEST_NODE_FLAGS = Object.freeze([
   '--import=./build/registerVue.js',
 ]);
 
+/**
+ * Longest command line a Windows process may be given. The repository has
+ * more than a thousand test files, so one spawn carrying every path exceeds
+ * the limit and the runner dies with ENAMETOOLONG.
+ */
+export const MAX_TEST_COMMAND_LINE_CHARS = 15_000;
+
+/**
+ * Split the test files into batches whose command line stays inside the
+ * limit. Node's test runner gives every file its own process either way, so
+ * a batch is the same set of tests as one long command line.
+ */
+export function batchTestFiles(files, maxChars = MAX_TEST_COMMAND_LINE_CHARS) {
+  const batches = [];
+  let current = [];
+  let chars = 0;
+  for (const file of files) {
+    const cost = file.length + 1;
+    if (current.length && chars + cost > maxChars) {
+      batches.push(current);
+      current = [];
+      chars = 0;
+    }
+    current.push(file);
+    chars += cost;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
 function runTests(args) {
   const result = spawnSync(
     process.execPath,
@@ -103,8 +133,10 @@ function runTests(args) {
 
 export function runUnitTests() {
   const plan = buildUnitTestPlan(discoverUnitTestFiles());
-  const parallelStatus = runTests(['--test', ...plan.parallel]);
-  if (parallelStatus !== 0) return parallelStatus;
+  for (const batch of batchTestFiles(plan.parallel)) {
+    const parallelStatus = runTests(['--test', ...batch]);
+    if (parallelStatus !== 0) return parallelStatus;
+  }
 
   // The GC-bracketed budgets are calibrated on every supported Node major.
   // Unsupported runtimes may still run ordinary tests, so uncalibrated runtimes skip the

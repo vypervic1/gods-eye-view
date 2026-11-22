@@ -3,4 +3,4 @@
   flow endpoint instead, and the endpoint that answered is remembered for that
   key. A key both endpoints refuse is reported as rejected and left alone
   instead of retrying every tile against the daily tile budget
-  (`Qoder`, #1854).
+  (`Qoder`, #1892).

@@ -5,9 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ALLOCATION_TEST_FILES,
+  MAX_TEST_COMMAND_LINE_CHARS,
   UNIT_TEST_ROOTS,
   allocationTestArgs,
   assertCalibratedAllocationRuntime,
+  batchTestFiles,
   buildUnitTestPlan,
   discoverUnitTestFiles,
   isCalibratedAllocationRuntime,
@@ -51,10 +53,16 @@ test('unit runner serializes only GC-bracketed allocation microbenchmarks', () =
 
   assert.deepEqual(plan.parallel, ordinary);
   assert.deepEqual(plan.serializedAllocations, ALLOCATION_TEST_FILES);
-  assert.equal(plan.parallel.some((file) => ALLOCATION_TEST_FILES.includes(file)), false);
+  assert.equal(
+    plan.parallel.some((file) => ALLOCATION_TEST_FILES.includes(file)),
+    false,
+  );
   for (const file of ALLOCATION_TEST_FILES) {
     assert.deepEqual(allocationTestArgs(file), [
-      '--expose-gc', '--test', '--test-concurrency=1', file,
+      '--expose-gc',
+      '--test',
+      '--test-concurrency=1',
+      file,
     ]);
   }
   assert.throws(
@@ -87,6 +95,31 @@ test('the runner discovers every test file in the repository', () => {
   }
 });
 
+test('the runner batches the test files so the command line stays legal', () => {
+  // Windows refuses a command line longer than about 32,000 characters, and
+  // the repository has more than a thousand test files. Every batch has to fit
+  // inside the limit and together they have to cover the same files.
+  const files = Array.from(
+    { length: 500 },
+    (_, index) =>
+      `src/data/some-longer-test-name-${String(index).padStart(4, '0')}.test.mjs`,
+  );
+  const batches = batchTestFiles(files);
+  assert.ok(batches.length > 1, 'a thousand files do not fit in one command');
+  for (const batch of batches) {
+    const chars = batch.reduce((sum, file) => sum + file.length + 1, 0);
+    assert.ok(
+      chars <= MAX_TEST_COMMAND_LINE_CHARS,
+      `a batch of ${chars} characters is over the limit`,
+    );
+  }
+  assert.deepEqual(batches.flat(), files);
+  assert.deepEqual(batchTestFiles([]), []);
+  assert.deepEqual(batchTestFiles(['src/one.test.mjs']), [
+    ['src/one.test.mjs'],
+  ]);
+});
+
 test('allocation runtime calibration covers both supported Node majors', () => {
   assert.equal(assertCalibratedAllocationRuntime('24.19.0'), '24.19.0');
   assert.throws(
@@ -102,13 +135,18 @@ test('allocation runtime calibration covers both supported Node majors', () => {
 test('npm test calibrates both supported engines while retaining off-range warnings', () => {
   // package.json wiring: `npm test` must invoke this runner, and the engines
   // range it advertises must not be narrower than what the runner tolerates.
-  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const pkg = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  );
   assert.equal(pkg.scripts.test, 'node scripts/run-unit-tests.mjs');
   const enginesNode = String(pkg.engines?.node || '');
   assert.ok(enginesNode, 'engines.node must be declared');
   // Unsupported runtimes only skip probes without the explicit opt-in hard gate.
   // Node 26 is calibrated and runs those probes with the same budgets.
-  const runner = readFileSync(new URL('../scripts/run-unit-tests.mjs', import.meta.url), 'utf8');
+  const runner = readFileSync(
+    new URL('../scripts/run-unit-tests.mjs', import.meta.url),
+    'utf8',
+  );
   assert.match(runner, /GEV_REQUIRE_ALLOCATION_GATE/);
   assert.match(runner, /SKIPPED .*allocation microbenchmarks/);
 });

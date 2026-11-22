@@ -190,11 +190,14 @@ test('pointer input, camera holds and the stock clicks go through the one dispat
       });
   const offenders = [];
   for (const file of walk('src')) {
-    if (file === DISPATCHER) continue;
+    // The walked paths carry the platform's separator, the allow-list is
+    // written with forward slashes.
+    const relative = file.split(path.sep).join('/');
+    if (relative === DISPATCHER) continue;
     const source = read(file);
     for (const [pattern, what, allowed] of rules)
-      if (!allowed.includes(file) && pattern.test(source))
-        offenders.push(`${file} ${what}`);
+      if (!allowed.includes(relative) && pattern.test(source))
+        offenders.push(`${relative} ${what}`);
   }
   assert.deepEqual(offenders, []);
 });
