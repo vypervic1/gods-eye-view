@@ -9,3 +9,9 @@
 
 [build.environment]
   NODE_VERSION = "24"
+
+# The API lives in the Vite middleware stack. The function mounts the same
+# provider middleware, so the deployed site answers /api/* the way the dev
+# server does.
+[functions]
+  directory = "netlify/functions"
