@@ -242,20 +242,34 @@ export async function handle(request) {
   };
 
   let deadline = false;
-  const timer = setTimeout(() => {
-    deadline = true;
-  }, DEADLINE_MS);
+  let expiry;
+  const expiryPromise = new Promise((resolve) => {
+    expiry = setTimeout(() => {
+      deadline = true;
+      resolve('timeout');
+    }, DEADLINE_MS);
+    expiry.unref?.();
+  });
 
   try {
-    await next();
-    // A handler that calls next() without awaiting it still finishes the chain.
-    while (outstanding) {
-      const pending = outstanding;
-      outstanding = null;
-      await pending;
+    // The race is what keeps the answer inside the edge's window: when the
+    // deadline passes, the function answers at once and the provider's work
+    // is left to finish on its own.
+    const outcome = await Promise.race([
+      next().then(() => 'done'),
+      expiryPromise,
+    ]);
+    if (outcome === 'done') {
+      // A handler that calls next() without awaiting it still finishes the
+      // chain.
+      while (outstanding) {
+        const pending = outstanding;
+        outstanding = null;
+        await pending;
+      }
     }
   } finally {
-    clearTimeout(timer);
+    clearTimeout(expiry);
   }
 
   if (deadline && !res.writableEnded) {

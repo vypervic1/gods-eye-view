@@ -60,3 +60,16 @@ test('the mounted path is stripped before the handler runs', async () => {
   const response = await handle(browserRequest('/api/tomtom/status'));
   assert.equal(response.status, 200);
 });
+
+test('work that outlasts the deadline answers with the app’s error shape', async (t) => {
+  // A fresh module reads the deadline from the environment, so the function
+  // under test gives up almost at once. The provider it asks never answers.
+  process.env.GEV_FUNCTION_DEADLINE_MS = '50';
+  t.mock.method(globalThis, 'fetch', () => new Promise(() => {}));
+  const { handle: impatient } = await import(`../functions/api.mjs?deadline=1`);
+  const response = await impatient(browserRequest('/api/celestrak/stations'));
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, 'provider_timeout');
+  delete process.env.GEV_FUNCTION_DEADLINE_MS;
+});
