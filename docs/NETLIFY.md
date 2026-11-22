@@ -82,7 +82,8 @@ from a browser. Set the environment variables instead.
 - **Writes to the deployment directory.** The function's working directory is
   read-only, so it keeps its caches and the camera catalogues in a writable
   temporary directory that links the bundled `config/` and `public/` into
-  place.
+  place. The server's own logs (the Realtime debug log) go there too, so they
+  last as long as the function instance and no longer.
 
 ## Limits
 

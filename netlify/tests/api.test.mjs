@@ -6,8 +6,16 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
-import { handle } from '../functions/api.mjs';
+// A work directory of its own, so the caches the providers keep on disk are
+// empty for this run: a suite that reads a cache written by an earlier run
+// never reaches the upstream it means to exercise.
+process.env.GEV_FUNCTION_WORK_DIR = mkdtempSync(join(tmpdir(), 'gev-test-'));
+
+const { handle } = await import('../functions/api.mjs');
 
 /** A same-origin browser request to the deployed site. */
 function browserRequest(path, headers = {}) {
@@ -73,6 +81,27 @@ test('the mount point Netlify used does not change the route', async () => {
     const response = await handle(browserRequest(path));
     assert.equal(response.status, 200, path);
   }
+});
+
+test('the server can write its own log on a hosted deployment', async () => {
+  // The Realtime debug log is appended to a file under the server's source
+  // root. On a hosted deployment that root is a read-only bundle, so the
+  // function points the providers at a writable directory; a write that fails
+  // answers 500.
+  const host = 'gods-eye-view-console.netlify.app';
+  const response = await handle(
+    new Request(`https://${host}/api/realtime/debug-log`, {
+      method: 'POST',
+      headers: {
+        host,
+        origin: `https://${host}`,
+        'sec-fetch-site': 'same-origin',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ event: 'hosted-deployment-check' }),
+    }),
+  );
+  assert.equal(response.status, 204);
 });
 
 test('work that outlasts the deadline answers with the app’s error shape', async (t) => {

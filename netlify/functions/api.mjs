@@ -50,10 +50,13 @@ const EDGE_HEADERS = [
  * is read-only, so the work happens in a writable directory that links the
  * bundled catalogues into place. This runs before the providers are imported,
  * because they resolve those paths when they load.
+ *
+ * @returns {string} The directory the providers read and write in.
  */
 function prepareWorkingDirectory() {
   const bundleRoot = process.cwd();
-  const work = join(tmpdir(), 'gev-function');
+  const work =
+    process.env.GEV_FUNCTION_WORK_DIR || join(tmpdir(), 'gev-function');
   try {
     mkdirSync(work, { recursive: true });
     for (const dir of ['config', 'public']) {
@@ -64,8 +67,10 @@ function prepareWorkingDirectory() {
       }
     }
     process.chdir(work);
+    return work;
   } catch {
     // A read-only or already-linked layout keeps the bundle root.
+    return bundleRoot;
   }
 }
 
@@ -159,7 +164,7 @@ async function bodyOf(request) {
  */
 let stackPromise = null;
 async function buildStack() {
-  prepareWorkingDirectory();
+  const sourceRoot = prepareWorkingDirectory();
   const { localProviderPlugins } =
     await import('../../server/providers/local.js');
   const { apiNotFoundPlugin } =
@@ -186,7 +191,8 @@ async function buildStack() {
 
   const plugins = [
     ...localProviderPlugins({
-      nominatimStorageDir: join(process.cwd(), '.gev-cache', 'nominatim'),
+      nominatimStorageDir: join(sourceRoot, '.gev-cache', 'nominatim'),
+      sourceRoot,
     }),
     apiNotFoundPlugin(),
   ];
@@ -310,7 +316,9 @@ export async function handle(request) {
       headers.set(name, String(value));
     }
   }
-  return new Response(res.body(), { status: res.statusCode, headers });
+  // A 204 (the Realtime debug log answers one) must not carry a body.
+  const answer = res.statusCode === 204 ? null : res.body();
+  return new Response(answer, { status: res.statusCode, headers });
 }
 
 export default async (request) => handle(request);

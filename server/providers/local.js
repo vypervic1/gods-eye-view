@@ -44,11 +44,15 @@ import { libraryProxy } from './library.js';
  * `realtime` configures OpenAI; `gemini` explicitly opts into Gemini Live.
  * `nominatimStorageDir` binds an owned absolute directory before construction;
  * omission retains the durable per-source cache and policy state.
+ * `sourceRoot` is where the catalogues are read from and where the server
+ * writes its own logs; a deployment that keeps the checkout read-only passes a
+ * writable directory there.
  */
 function localProviderPlugins({
   realtime,
   gemini,
   nominatimStorageDir = NOMINATIM_CACHE_DIR,
+  sourceRoot = defaultSourceRoot,
 } = {}) {
   if (
     typeof nominatimStorageDir !== 'string' ||
@@ -70,7 +74,7 @@ function localProviderPlugins({
     regionalBriefProxy(),
     geocodeProxy({ storageDir: nominatimStorageDir }),
     weatherEffectsProxy(),
-    cctvProxy({ sourceRoot: defaultSourceRoot }),
+    cctvProxy({ sourceRoot }),
     radioBrowserProxy(),
     gbfsProxy(),
     localReceiversProxy(),
@@ -79,7 +83,7 @@ function localProviderPlugins({
     adsbLolProxy(),
     aisLiveProxy(),
     trackBackfillProxies(),
-    openAiRealtimeProxy({ realtime }),
+    openAiRealtimeProxy({ realtime, sourceRoot }),
     ...(gemini ? [geminiLiveProxy({ realtime: gemini })] : []),
     googlePlacesContextProxy(),
     windProxy(),
