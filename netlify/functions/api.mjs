@@ -11,12 +11,19 @@
  */
 import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
-
-import { localProviderPlugins } from '../../server/providers/local.js';
-import { apiNotFoundPlugin } from '../../server/standalone/api-not-found.js';
+import { existsSync, mkdirSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 /** Netlify routes every `/api/*` request here. */
-export const config = { path: '/api/*' };
+export const config = { path: '/api/*', timeout: 26 };
+
+/**
+ * The edge stops a function that has produced nothing for a while, so the
+ * work is given a deadline well inside that window: a provider that is slow
+ * answers with the app's own error shape instead of a gateway page.
+ */
+const DEADLINE_MS = Number(process.env.GEV_FUNCTION_DEADLINE_MS || 24_000);
 
 /**
  * Headers the edge adds to every request. The same-site gate refuses a
@@ -38,6 +45,31 @@ const EDGE_HEADERS = [
 ];
 
 /**
+ * The providers keep their caches under the working directory and read the
+ * camera catalogues from `config/` and `public/`. The bundle's own directory
+ * is read-only, so the work happens in a writable directory that links the
+ * bundled catalogues into place. This runs before the providers are imported,
+ * because they resolve those paths when they load.
+ */
+function prepareWorkingDirectory() {
+  const bundleRoot = process.cwd();
+  const work = join(tmpdir(), 'gev-function');
+  try {
+    mkdirSync(work, { recursive: true });
+    for (const dir of ['config', 'public']) {
+      const source = join(bundleRoot, dir);
+      const target = join(work, dir);
+      if (existsSync(source) && !existsSync(target)) {
+        symlinkSync(source, target, 'junction');
+      }
+    }
+    process.chdir(work);
+  } catch {
+    // A read-only or already-linked layout keeps the bundle root.
+  }
+}
+
+/**
  * Collects what a provider handler writes, so the function can answer with
  * one Web `Response`.
  */
@@ -55,8 +87,9 @@ class FunctionResponse {
     if (Array.isArray(headers)) {
       for (const [name, value] of headers) this.setHeader(name, value);
     } else if (headers) {
-      for (const [name, value] of Object.entries(headers))
+      for (const [name, value] of Object.entries(headers)) {
         this.setHeader(name, value);
+      }
     }
     return this;
   }
@@ -126,6 +159,12 @@ async function bodyOf(request) {
  */
 let stackPromise = null;
 async function buildStack() {
+  prepareWorkingDirectory();
+  const { localProviderPlugins } =
+    await import('../../server/providers/local.js');
+  const { apiNotFoundPlugin } =
+    await import('../../server/standalone/api-not-found.js');
+
   const routes = [];
   const httpServer = new EventEmitter();
   const server = {
@@ -147,7 +186,7 @@ async function buildStack() {
 
   const plugins = [
     ...localProviderPlugins({
-      nominatimStorageDir: `${process.env.TMPDIR || '/tmp'}/gev-nominatim`,
+      nominatimStorageDir: join(process.cwd(), '.gev-cache', 'nominatim'),
     }),
     apiNotFoundPlugin(),
   ];
@@ -202,19 +241,42 @@ export async function handle(request) {
     return outstanding;
   };
 
-  await next();
-  // A handler that calls next() without awaiting it still finishes the chain.
-  while (outstanding) {
-    const pending = outstanding;
-    outstanding = null;
-    await pending;
+  let deadline = false;
+  const timer = setTimeout(() => {
+    deadline = true;
+  }, DEADLINE_MS);
+
+  try {
+    await next();
+    // A handler that calls next() without awaiting it still finishes the chain.
+    while (outstanding) {
+      const pending = outstanding;
+      outstanding = null;
+      await pending;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (deadline && !res.writableEnded) {
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(
+      JSON.stringify({
+        error: 'The provider did not answer in time',
+        code: 'provider_timeout',
+      }),
+    );
   }
 
   const headers = new Headers();
   for (const [name, value] of res.headers) {
-    if (Array.isArray(value))
+    if (Array.isArray(value)) {
       for (const item of value) headers.append(name, item);
-    else headers.set(name, String(value));
+    } else {
+      headers.set(name, String(value));
+    }
   }
   return new Response(res.body(), { status: res.statusCode, headers });
 }

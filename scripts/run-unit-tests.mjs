@@ -15,9 +15,13 @@ export function isCalibratedAllocationRuntime(version = process.versions.node) {
 }
 
 /** Require a runtime on which allocation budgets are calibrated. */
-export function assertCalibratedAllocationRuntime(version = process.versions.node) {
+export function assertCalibratedAllocationRuntime(
+  version = process.versions.node,
+) {
   if (!isCalibratedAllocationRuntime(version)) {
-    throw new Error(`Allocation budgets require calibrated Node 24 or 26; received ${version}`);
+    throw new Error(
+      `Allocation budgets require calibrated Node 24 or 26; received ${version}`,
+    );
   }
   return version;
 }
@@ -28,11 +32,12 @@ export function assertCalibratedAllocationRuntime(version = process.versions.nod
  * `server/` belongs here because provider modules own tests of their own: a
  * suite placed beside the module it covers must run, and CI's unit-test job runs
  * `npm test`, so a directory missing from this list is a suite that never runs
- * there. `unitTestRunner.test.mjs` asserts the list covers every `*.test.mjs`
+ * there. `netlify/` holds the deployment's own function and its suite.
+ * `unitTestRunner.test.mjs` asserts the list covers every `*.test.mjs`
  * outside dependencies, build output and dot-directories, so adding a tree
  * without adding it here fails.
  */
-export const UNIT_TEST_ROOTS = Object.freeze(['src', 'server']);
+export const UNIT_TEST_ROOTS = Object.freeze(['src', 'server', 'netlify']);
 
 /** Discover repository unit tests in stable path order. */
 export function discoverUnitTestFiles(root = process.cwd()) {
@@ -53,9 +58,13 @@ export function discoverUnitTestFiles(root = process.cwd()) {
 /** Partition ordinary parallel tests from the two GC-bracketed probes. */
 export function buildUnitTestPlan(files) {
   const known = new Set(files);
-  const missingAllocationTests = ALLOCATION_TEST_FILES.filter((file) => !known.has(file));
+  const missingAllocationTests = ALLOCATION_TEST_FILES.filter(
+    (file) => !known.has(file),
+  );
   if (missingAllocationTests.length) {
-    throw new Error(`Missing allocation microbenchmarks: ${missingAllocationTests.join(', ')}`);
+    throw new Error(
+      `Missing allocation microbenchmarks: ${missingAllocationTests.join(', ')}`,
+    );
   }
   const allocationSet = new Set(ALLOCATION_TEST_FILES);
   return {
@@ -79,11 +88,15 @@ export const UNIT_TEST_NODE_FLAGS = Object.freeze([
 ]);
 
 function runTests(args) {
-  const result = spawnSync(process.execPath, [...UNIT_TEST_NODE_FLAGS, ...args], {
-    cwd: process.cwd(),
-    stdio: 'inherit',
-    env: process.env,
-  });
+  const result = spawnSync(
+    process.execPath,
+    [...UNIT_TEST_NODE_FLAGS, ...args],
+    {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      env: process.env,
+    },
+  );
   if (result.error) throw result.error;
   return result.status ?? 1;
 }
@@ -102,9 +115,9 @@ export function runUnitTests() {
       assertCalibratedAllocationRuntime();
     }
     console.warn(
-      `[unit] SKIPPED ${ALLOCATION_TEST_FILES.length} allocation microbenchmarks: `
-      + `budgets are calibrated for Node 24 and 26, running ${process.versions.node}. `
-      + 'Run under Node 24 or 26 (or set GEV_REQUIRE_ALLOCATION_GATE=1 to fail instead).',
+      `[unit] SKIPPED ${ALLOCATION_TEST_FILES.length} allocation microbenchmarks: ` +
+        `budgets are calibrated for Node 24 and 26, running ${process.versions.node}. ` +
+        'Run under Node 24 or 26 (or set GEV_REQUIRE_ALLOCATION_GATE=1 to fail instead).',
     );
     return 0;
   }
@@ -115,5 +128,7 @@ export function runUnitTests() {
   return 0;
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
+const invokedPath = process.argv[1]
+  ? pathToFileURL(path.resolve(process.argv[1])).href
+  : '';
 if (import.meta.url === invokedPath) process.exitCode = runUnitTests();

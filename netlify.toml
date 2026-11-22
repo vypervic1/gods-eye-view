@@ -15,3 +15,6 @@
 # server does.
 [functions]
   directory = "netlify/functions"
+  # The camera catalogues are read from disk at runtime, so they travel with
+  # the function.
+  included_files = ["config/**", "public/**"]

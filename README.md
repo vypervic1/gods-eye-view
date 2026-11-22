@@ -222,6 +222,27 @@ Unset or blank trusted peers retain automatic gateway discovery; `none` explicit
 disables it. The startup log confirms that no additional peers are trusted.
 
 <details>
+<summary><b>Path 4 — Netlify</b></summary>
+
+The client is a Vite build and the API is a Netlify Function that mounts the
+same provider middleware the dev server mounts, so a Netlify site serves the
+app and answers `/api/*` the same way.
+
+```bash
+npm ci
+npm run build
+npx netlify deploy --dir=dist --prod --no-build
+```
+
+Provider keys are site environment variables on Netlify (`npx netlify env:set
+<KEY> <value> --context=production`), and Provider Settings stays local-only:
+the key-setup endpoint answers local hostnames only. The camera catalogues
+travel with the function. [docs/NETLIFY.md](docs/NETLIFY.md) has the details,
+including what a hosted deployment cannot do.
+
+</details>
+
+<details>
 <summary>Running on Linux, a NAS, or behind a reverse proxy</summary>
 
 Run it as the user who should own the files it writes. `id` shows the numbers; for yourself on Linux:
